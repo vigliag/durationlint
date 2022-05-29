@@ -28,7 +28,7 @@ see `./testdata/src/p1/test.go` for more
 ## Usage
 
 ```bash
-go install ./cmd/durationlint
+go install github.com/vigliag/durationlint/cmd/durationlint@latest
 cd yourcode
 durationlint ./...
 ```

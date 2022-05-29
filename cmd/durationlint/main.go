@@ -1,7 +1,7 @@
 package main
 
 import (
-	"durationlint/pkg/analyzer"
+	"github.com/vigliag/durationlint/pkg/analyzer"
 	"golang.org/x/tools/go/analysis/singlechecker"
 )
 

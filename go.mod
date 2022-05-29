@@ -1,4 +1,4 @@
-module durationlint
+module github.com/vigliag/durationlint
 
 go 1.18
 
