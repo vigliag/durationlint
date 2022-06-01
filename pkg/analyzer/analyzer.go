@@ -14,50 +14,83 @@ var Analyzer = &analysis.Analyzer{
 }
 
 func run(pass *analysis.Pass) (interface{}, error) {
-	ti := pass.TypesInfo
 	for _, file := range pass.Files {
+		// NOTE: as struct and function call expressions can be nested in any
+		// other assignment and call expressions, we want to always return true
+		// to continue descending the tree
+
 		ast.Inspect(file, func(node ast.Node) bool {
-			var l, r ast.Expr
 			switch v := node.(type) {
 			case *ast.KeyValueExpr:
-				l = v.Key
-				r = v.Value
+				diag := checkAssignment(pass, v.Key, v.Value)
+				if diag != nil {
+					pass.Report(*diag)
+				}
+				return true
+
 			case *ast.AssignStmt:
-				// TODO: in multiple assignments, we are currently only checking
-				//  the first one
-				l = v.Lhs[0]
-				r = v.Rhs[0]
+				for i := range v.Lhs {
+					diag := checkAssignment(pass, v.Lhs[i], v.Rhs[i])
+					if diag != nil {
+						pass.Report(*diag)
+					}
+				}
+				return true
+
+			case *ast.ValueSpec:
+				if v.Type == nil {
+					return true
+				}
+				for _, value := range v.Values {
+					diag := checkAssignment(pass, v.Type, value)
+					if diag != nil {
+						pass.Report(*diag)
+					}
+				}
+				return true
+
 			case *ast.CallExpr:
 				if shouldExcludeCall(v) {
 					return false
 				}
 				for _, arg := range v.Args {
-					if ti.TypeOf(arg).String() == "time.Duration" && usesUntypedConstants(ti, arg) {
-						pass.Reportf(v.Pos(), "untyped constant in time.Duration argument")
-						return false
+					diag := checkArgument(pass, arg)
+					if diag != nil {
+						pass.Report(*diag)
 					}
 				}
 				return true
+
 			default:
 				return true
 			}
-
-			lType := ti.TypeOf(l)
-			if lType == nil || lType.String() != "time.Duration" {
-				// NOTE: we need to explore the subtree even if the lvalue is
-				// not a time.Duration, so to detect `a := MyStruct { Duration: ... }`
-				return true
-			}
-
-			if usesUntypedConstants(ti, r) {
-				pass.Reportf(r.Pos(), "untyped constant in time.Duration assignment")
-				return false
-			}
-
-			return true
 		})
 	}
 	return nil, nil
+}
+
+func checkArgument(pass *analysis.Pass, v ast.Expr) *analysis.Diagnostic {
+	if pass.TypesInfo.TypeOf(v).String() != "time.Duration" {
+		return nil
+	}
+	if !usesUntypedConstants(pass.TypesInfo, v) {
+		return nil
+	}
+	return &analysis.Diagnostic{
+		Pos:     v.Pos(),
+		Message: "untyped constant in time.Duration argument",
+	}
+}
+
+func checkAssignment(pass *analysis.Pass, l ast.Expr, r ast.Expr) *analysis.Diagnostic {
+	lType := pass.TypesInfo.TypeOf(l)
+	if lType == nil || lType.String() != "time.Duration" {
+		return nil
+	}
+	if !usesUntypedConstants(pass.TypesInfo, r) {
+		return nil
+	}
+	return &analysis.Diagnostic{Pos: r.Pos(), Message: "untyped constant in time.Duration assignment"}
 }
 
 func usesUntypedConstants(ti *types.Info, e ast.Expr) bool {
@@ -80,23 +113,38 @@ func usesUntypedConstants(ti *types.Info, e ast.Expr) bool {
 // we only care about untyped `const Name = 123` declarations
 // `var Name = 123`, and `a := 123` declarations are already type-checked
 // by the compiler
-func hasUntypedConstDeclaration(ti *types.Info, v *ast.Ident) bool {
-	decl := v.Obj.Decl
+func hasUntypedConstDeclaration(ti *types.Info, identifier *ast.Ident) bool {
+	decl := identifier.Obj.Decl
 
+	// TODO: we could ignore `var` statements altogether
+	// Is there a way to distinguish them?
 	vSpec, ok := decl.(*ast.ValueSpec) // `var` or `const` declaration
 	if !ok {
 		return false
 	}
 
-	// TODO: how to distinguish var and const
-
-	if vSpec.Type != nil { // `const name type = ...` declaration
+	// typed const or var declaration,
+	// we can ignore it as it is already type-checked
+	if vSpec.Type != nil {
 		return false
 	}
 
-	// `const name = something` declaration
-	// where `something` is a time.Duration
-	vType := ti.TypeOf(vSpec.Values[0])
+	// if it's a multiple declaration (eg. `const a, b = 10, time.Second`)
+	// we need to find the correct identifier
+	nameIdx := -1
+	for i, name := range vSpec.Names {
+		if name.Name == identifier.Name {
+			nameIdx = i
+			break
+		}
+	}
+
+	if nameIdx == -1 {
+		panic("logic error: identifier not found in its declaration")
+	}
+
+	// skip if the right-hand side is explicitly typed to time.Duration
+	vType := ti.TypeOf(vSpec.Values[nameIdx])
 	if vType.String() != "time.Duration" {
 		return true
 	}
