@@ -18,27 +18,47 @@ func example() {
 	// When using a literal, or an untyped constant like the one above, in a 
 	// place where a time.Duration is expected, the value gets automatically
 	// promoted, resulting in a 5 nanosecond timeout being used.
+	//
 	// All the following uses are flagged by the check:
+
 	_ = http.Client { Timeout: timeout }
 	var duration time.Duration = timeout
 	time.Sleep(timeout)
 	time.Sleep(5)
 	
-	// Values typed to time.Duration are allowed, so you can explicitly cast to
-	// time.Duration to silence the check.
+	// Multiplication against typed values of time.Duration are allowed, so
+	// you can silence the check by multiplying untyped values against
+	// existing time units, converting typed values using `time.Duration()`
+	// first when needed.
+	// 
 	// The following uses are not flagged:
-	time.Sleep(time.Duration(5))
+
+	const timeoutInSeconds int = 5
+	time.Sleep(time.Duration(timeoutInSeconds) * time.Second)
 	time.Sleep(5 * time.Second)
 	const correctTimeout = 5  * time.Second
 	time.Sleep(correctTimeout)
+	
+	// Note that when the "forbid-improper-conversions" flag is set to
+	// true, raw conversions using `time.Duration()` are not allowed
+	// unless immediately multiplied by a time unit. This prevents usage
+	// errors from forgetting that `time.Duration()` also converts to
+	// nanoseconds.
+	//
+	// The following uses are flagged by the check with the flag enabled:
+
+	time.Sleep(time.Duration(timeoutInSeconds)) 
+	time.Sleep(time.Duration(500)) 
 }
 ```
 
-see `./testdata/src/p1/test.go` for more
+See `./testdata/src/p1/test.go` and `./testdata/src/forbid_improper_conversion/test.go` for more.
 
 ## Known issues
 
-- To ensure that casting to time.Duration is always possible while allowing the `time` package to be aliased, the check currently ignores calls to functions named `Duration` regardless of their package.
+- To ensure that casting to time.Duration is always possible while allowing the `time` package to be aliased,
+  the check currently ignores calls to functions named `Duration` regardless of their package.
+- Various edge cases are not yet handled, such as parenthetical expressions. Tickets will be created to track these.
 
 ## Usage
 
