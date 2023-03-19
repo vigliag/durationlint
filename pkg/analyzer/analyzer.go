@@ -94,8 +94,6 @@ func (s *improperDurationContextStack) PushCurrent(node ast.Node) {
 			isMultiplicationExpr = binaryExpr.Op == token.MUL
 		}
 	}
-	position := s.position(node)
-	fmt.Printf("Entering %s\n", position)
 	isDurationExpr := false
 	if isExpr {
 		isDurationExpr = isDurationType(s.pass.TypesInfo.TypeOf(expr))
@@ -105,10 +103,6 @@ func (s *improperDurationContextStack) PushCurrent(node ast.Node) {
 		isMultiplicationExpr: isMultiplicationExpr,
 		isDurationType:       isDurationExpr,
 	})
-}
-
-func (s *improperDurationContextStack) position(node ast.Node) token.Position {
-	return s.pass.Fset.Position(node.Pos())
 }
 
 func (s *improperDurationContextStack) PopCurrent() {
@@ -122,8 +116,6 @@ func (s *improperDurationContextStack) PopCurrent() {
 	if isProperDuration {
 		parent.hasProperDurationChild = true
 	}
-	position := s.position(current.node)
-	fmt.Printf("Exiting %s\n", position)
 	switch {
 	case isProperDuration:
 		// nothing; it's been resolved
